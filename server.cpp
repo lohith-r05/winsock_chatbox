@@ -1,7 +1,8 @@
 #include <bits/stdc++.h>
 #include <winsock2.h>
 #include <thread>
-#include <mutex> //mutual exclusion header
+#include <mutex> // mutual exclusion header
+#include "database.h" // include for saving messages
 using namespace std;
 
 class Server {
@@ -11,9 +12,10 @@ class Server {
     vector<SOCKET> clients; // List of connected clients
     map<SOCKET, string> clientNames; // Map to store names of clients
     mutex mtx; // Mutex for thread-safe access to clients vector
+    Database db; // database instance
 
 public:
-    Server() {
+    Server() : db("mydb.db") {
         WSAStartup(MAKEWORD(2, 2), &wsa);
         serverSocket = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -79,6 +81,12 @@ public:
             string msg = buffer;
             cout << clientName << ": " << msg << endl;
             broadcast(clientName + ": " + msg, clientSocket);
+
+            // Save the message to the database with timestamp
+            time_t now = time(0);
+            string timestamp = ctime(&now);
+            timestamp.pop_back(); // remove trailing newline
+            db.SaveMessage(timestamp, clientName, msg);
         }
     }
 
