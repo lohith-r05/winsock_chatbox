@@ -1,84 +1,114 @@
-#include <iostream>
+#include <bits/stdc++.h>
 #include <winsock2.h>
+#include <thread>
+#include <mutex> //mutual exclusion header
 using namespace std;
 
-class SERVER {
-private:
-    WSADATA data;
-    SOCKET serverSocket, clientSocket;
-    sockaddr_in serverAddr, clientAddr;
-    int clientSize;
+class Server {
+    WSADATA wsa; 
+    SOCKET serverSocket; 
+    sockaddr_in serverAddr;
+    vector<SOCKET> clients; // List of connected clients
+    map<SOCKET, string> clientNames; // Map to store names of clients
+    mutex mtx; // Mutex for thread-safe access to clients vector
 
 public:
-    SERVER() : serverSocket(INVALID_SOCKET),
-               clientSocket(INVALID_SOCKET),
-               clientSize(sizeof(clientAddr)) {}
-
-    bool initialize() {
-        return WSAStartup(MAKEWORD(2, 2), &data) == 0;
-    }
-
-    bool createSocket() {
+    Server() {
+        WSAStartup(MAKEWORD(2, 2), &wsa);
         serverSocket = socket(AF_INET, SOCK_STREAM, 0);
-        return serverSocket != INVALID_SOCKET;
-    }
 
-    bool bindSocket() {
         serverAddr.sin_family = AF_INET;
         serverAddr.sin_addr.s_addr = INADDR_ANY;
         serverAddr.sin_port = htons(8080);
-        return bind(serverSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) != SOCKET_ERROR;
+
+        bind(serverSocket, (sockaddr*)&serverAddr, sizeof(serverAddr));
+        listen(serverSocket, SOMAXCONN);
+
+        cout << "Server listening on port 8080...\n";
     }
 
-    bool listenForConnections() {
-        return listen(serverSocket, SOMAXCONN) != SOCKET_ERROR;
+    // Broadcast message to all clients except the sender
+    void broadcast(const string& msg, SOCKET sender) {
+        lock_guard<mutex> lock(mtx);
+        for (SOCKET client : clients) {
+            if (client != sender) {
+                send(client, msg.c_str(), msg.size() + 1, 0);
+            }
+        }
     }
 
-    bool acceptClient() {
-        cout << "WAITING for CONNECTIONS..." << endl;
-        clientSocket = accept(serverSocket, (sockaddr*)&clientAddr, &clientSize);
-        return clientSocket != INVALID_SOCKET;
+    // Handle client connection
+    void handleClient(SOCKET clientSocket) {
+        char buffer[1024]; 
+
+        // First receive the client's name
+        ZeroMemory(buffer, sizeof(buffer));
+        int nameLen = recv(clientSocket, buffer, sizeof(buffer), 0);
+        string clientName = (nameLen > 0) ? string(buffer) : "Unknown";
+
+        {
+            lock_guard<mutex> lock(mtx);
+            clientNames[clientSocket] = clientName;
+        }
+
+        cout << clientName << " connected.\n";
+        broadcast(clientName + " joined the chat.", clientSocket);
+
+        while (true) {
+            ZeroMemory(buffer, sizeof(buffer));
+            int bytesReceived = recv(clientSocket, buffer, sizeof(buffer), 0);
+
+            // Check if the client has disconnected
+            if (bytesReceived <= 0) {
+                cout << clientName << " disconnected.\n";
+
+                broadcast(clientName + " left the chat.", clientSocket);
+
+                // Remove client safely
+                lock_guard<mutex> lock(mtx);
+                auto it = find(clients.begin(), clients.end(), clientSocket);
+                if (it != clients.end()) {
+                    clients.erase(it);
+                }
+                clientNames.erase(clientSocket);
+                // why mutex for removal is that the clients vector is shared among multiple threads
+                closesocket(clientSocket);
+                break;
+            }
+
+            string msg = buffer;
+            cout << clientName << ": " << msg << endl;
+            broadcast(clientName + ": " + msg, clientSocket);
+        }
     }
 
-    void receiveMessage() {
-        char buffer[4096] = {};
-        ZeroMemory(buffer, 4096);
-        int bytesReceived = recv(clientSocket, buffer, sizeof(buffer), 0);
-        if (bytesReceived > 0) cout << "Client says: " << buffer << endl;
+    // Accept new client connections and handle them in separate threads
+    void run() {
+        while (true) {
+            sockaddr_in clientAddr;
+            int clientSize = sizeof(clientAddr);
+            SOCKET clientSocket = accept(serverSocket, (sockaddr*)&clientAddr, &clientSize);
+            cout << "New client connected.\n";
+            // Add the new client to the list of clients with mutex protection
+            {
+                lock_guard<mutex> lock(mtx);
+                clients.push_back(clientSocket);
+            }
+            // Create a new thread to handle the client 
+            // detach() means the thread will run independently, which runs even after the main thread exits
+            // detach() is opposite of join(), which waits for the thread to finish
+            thread(&Server::handleClient, this, clientSocket).detach();
+        }
     }
 
-    void cleanup() {
-        closesocket(clientSocket);
+    ~Server() {
         closesocket(serverSocket);
         WSACleanup();
     }
 };
 
 int main() {
-    SERVER server;
-
-    if (!server.initialize()) {
-        cout << "Initialization failed!" << endl;
-    }
-
-    if (!server.createSocket()) {
-        cout << "Socket creation failed!" << endl;
-    }
-
-    if (!server.bindSocket()) {
-        cout << "Binding failed!" << endl;
-    }
-
-    if (!server.listenForConnections()) {
-        cout << "Listening failed!" << endl;
-    }
-
-    if (!server.acceptClient()) {
-        cout << "Accepting client failed!" << endl;
-    }
-
-    server.receiveMessage();
-    server.cleanup();
-
+    Server server;
+    server.run();
     return 0;
 }
