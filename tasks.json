@@ -2,21 +2,67 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Build SQLite",
+      "type": "shell",
+      "command": "gcc",
+      "args": [
+        "-c",
+        "sqlite3.c",
+        "-o",
+        "sqlite3.o"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Build Database",
+      "type": "shell",
+      "command": "g++",
+      "args": [
+        "-c",
+        "database.cpp",
+        "-o",
+        "database.o",
+        "-std=c++17",
+        "-I."
+      ],
+      "problemMatcher": []
+    },
+    {
       "label": "Build Server",
       "type": "shell",
       "command": "g++",
       "args": [
+        "-c",
         "server.cpp",
         "-o",
-        "server.exe",
+        "server.o",
         "-std=c++17",
+        "-I."
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Link Server",
+      "type": "shell",
+      "dependsOn": [
+        "Build SQLite",
+        "Build Database",
+        "Build Server"
+      ],
+      "command": "g++",
+      "args": [
+        "server.o",
+        "database.o",
+        "sqlite3.o",
+        "-o",
+        "server.exe",
         "-lws2_32"
       ],
+      "problemMatcher": [],
       "group": {
         "kind": "build",
         "isDefault": true
-      },
-      "problemMatcher": []
+      }
     },
     {
       "label": "Build Client",
@@ -27,13 +73,11 @@
         "-o",
         "client.exe",
         "-std=c++17",
-        "-lws2_32"
+        "-lws2_32",
+        "-I."
       ],
-      "group": {
-        "kind": "build",
-        "isDefault": false
-      },
-      "problemMatcher": []
+      "problemMatcher": [],
+      "group": "build"
     }
   ]
 }
